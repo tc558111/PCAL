@@ -1,12 +1,17 @@
 package org.jlab.mon;
 
+import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.PrintWriter;
+import java.util.ArrayList;
+import java.util.Scanner;
+
 import org.jlab.clasrec.main.DetectorMonitoring;
 import org.jlab.clasrec.rec.CLASMonitoring;
 import org.jlab.clasrec.utils.ServiceConfiguration;
 import org.root.histogram.*;
 import org.root.pad.TCanvas;
+//import org.root.pad.TCanvas;
 import org.jlab.evio.clas12.EvioDataBank;
 import org.jlab.evio.clas12.EvioDataEvent;
 import org.root.func.F1D;
@@ -51,22 +56,25 @@ public class FCMon extends DetectorMonitoring
 		
 		//fit function
 		F1D expfit;
+		F1D gausFit;//[] = new F1D[62*68];
 
 		String histName;
 		String projName;
 		String graphName;
-		String plotName;
+		//String plotName;
 		String functionName;
+		String gaussFuncName;
 
 		
 		PrintWriter writer = null;
 	
 		//U,V,W strip calibration
-		int count = 0;
+		//int count = 0;
 		
 		char stripLetter[] = {'u','v','w'};
 		String histNameFormat[] = {"histU_%02d", "histV_%02d", "histW_%02d"};
-		String projNameFormat[] = {"ProjHistU_W%02d", "ProjHistV_U%02d", "ProjHistW_U%02d"};
+		String projNameFormat[] = {"ProjHistU%02d_W%02d", "ProjHistV%02d_U%02d", "ProjHistW%02d_U%02d"};
+		String gaussfuncNameFormat[] = {"gaussU%02d_%02d", "gaussV%02d_%02d", "gaussW%02d_%02d"};
 		String graphNameFormat[] = {"graphU_%02d", "graphV_%02d", "graphW_%02d"};
 		String functionNameFormat[] = {"expU_%02d", "expV_%02d", "expW_%02d"};
 		String fileName[] = {"UattenCoeff.dat", "VattenCoeff.dat", "WattenCoeff.dat"};
@@ -74,7 +82,15 @@ public class FCMon extends DetectorMonitoring
 		int stripMax[] = {68, 62, 62};//u, v, w
 		int crossStripMax[] = {62, 68, 68};//w, u, u
 		
-		for(int il = 0; il < 3; il++)
+		//create gaussian function and fit
+		//gaussFuncName = String.format(gaussfuncNameFormat[il], strip + 1);
+		gausFit = new F1D("gaus",0.0,150.0);
+		//gausFit.setName(gaussFuncName);
+		//gausFit.parameter(0).setValue(15.0);
+		//gausFit.setParLimits(0, -1000.0, 1000.0);
+		//gausFit.parameter(1).setValue(100.0);
+		//gausFit.parameter(2).setValue(50.0);
+		for(int il = 0; il < 3; ++il)
 		{
 			try 
 			{
@@ -93,12 +109,34 @@ public class FCMon extends DetectorMonitoring
 				counter = 0;
 				for(int crossStrip = 0; crossStrip < crossStripMax[il]; crossStrip++)
 				{
-					projName = String.format(projNameFormat[il], crossStrip + 1);
+					projName = String.format(projNameFormat[il], strip+1, crossStrip + 1);
 					ProjHadc[crossStrip] = Hadc[strip].sliceX(crossStrip);
 					ProjHadc[crossStrip].setName(projName);
 					
-					projection.add(ProjHadc[crossStrip]);
+					
+					
+					//create gaussian function and fit
+					gaussFuncName = String.format(gaussfuncNameFormat[il], strip+1, crossStrip + 1);
+					//gausFit[strip+crossStrip*] = new F1D("gaus",0.0,150.0);
+					gausFit.setName(gaussFuncName);
+					gausFit.setParameter(0, 15.0);
+					gausFit.setParLimits(0, 0.0, 500.0);
+					gausFit.setParameter(1, 100.0);
+					gausFit.setParLimits(1, 0.0, 150.0);
+					gausFit.setParameter(2, 10.0);
+					gausFit.setParLimits(2, 0.0, 1000.0);
+					
+					
+					if(ProjHadc[crossStrip].getEntries() >= 20)
+					{
+						projection.add(ProjHadc[crossStrip]);
+						System.out.println(il + "    " + strip + "    " + crossStrip);
+						ProjHadc[crossStrip].fit(gausFit);
+						centroids[counter] = gausFit.getParameter(1);
+					}
+					else
 					centroids[counter] = ProjHadc[crossStrip].getMean();
+					
 					if(centroids[counter] >= 1.0)
 					{
 						xTemp[counter] = CalcDistinStrips(stripLetter[il], crossStrip+1)[0];//calcDistinStrips
@@ -108,7 +146,7 @@ public class FCMon extends DetectorMonitoring
 						ex[counter] = CalcDistance(stripLetter[il], xTemp[counter], xTempEr[counter])[1];
 						//centroids[counter] = ProjHadc[crossStrip].getMean();
 						
-						ey[counter] = 0.0;
+						ey[counter] = 1.0;
 						counter++;
 					}
 				}
@@ -148,9 +186,9 @@ public class FCMon extends DetectorMonitoring
 				//double chisq = (double)(expfit.getChiSquare(null)/expfit.getNDF());
 				//System.out.println(chisq);
 				int j = strip+1;
-				writer.println(j + "   " + x[0] +"   "
-						+ expfit.getParameter(0) +"   " 
-						+ expfit.getParameter(1) +"   " 
+				writer.println(j  + "   " + x[0] + "   "
+						+ expfit.getParameter(0) + "   " 
+						+ expfit.getParameter(1) + "   " 
 						+ expfit.getParameter(2));
 				//++count;
 			}
@@ -159,6 +197,21 @@ public class FCMon extends DetectorMonitoring
 		getDir().addDirectory(projection);
 		getDir().addDirectory(expofit);
 		getDir().addDirectory(graph);
+		
+		/*TCanvas Ucan = new TCanvas("Ucan", "Ucan", 800, 600, 1, 1);
+		gausFit = new F1D("gaus",0.0,150.0);
+		gausFit.setName("trial gauss");
+		gausFit.setParameter(0, 15.0);
+		gausFit.setParameter(1, 50.0);
+		gausFit.setParameter(2, 10.0);
+		
+		H2D trial = (H2D)getDir().getDirectory("crossStripHisto").getObject("histU_68");
+		H1D Projtrial = trial.sliceX(10);
+		//Ucan.cd(1);
+		Ucan.draw(Projtrial);
+		//Ucan.cd(2);
+		Projtrial.fit(gausFit);
+		Ucan.draw(gausFit, "same");*/
 	}
 
 	@Override
@@ -169,8 +222,6 @@ public class FCMon extends DetectorMonitoring
 		
 	public void init() 
 	{
-		int ustrip, vstrip, wstrip;// wstrip;
-		
 		String histNameFormat[] = {"histU_%02d", "histV_%02d", "histW_%02d"};
 		String histname;
 		
@@ -179,6 +230,14 @@ public class FCMon extends DetectorMonitoring
 		double binMaxX[] = {62.5,68.5,68.5};
 	
 		TDirectory geometry = new TDirectory("crossStripHisto");
+		TDirectory calADC = new TDirectory("dalitz");
+		
+		calADC.add(new H1D("Dalitz Condition",500,0.,3.0));
+		calADC.add(new H1D("Dalitz Multiplicity Cut",500,0.,3.0));
+		calADC.add(new H2D("numHitsUV",68,0.5,68.5,62,0.5,62.5));
+		calADC.add(new H2D("numHitsUW",68,0.5,68.5,62,0.5,62.5));
+		calADC.add(new H2D("numHitsVW",62,0.5,62.5,62,0.5,62.5));
+		
 		//declare histograms and add to directory
 		for(int il = 0; il < 3; il++)
 		{
@@ -189,27 +248,30 @@ public class FCMon extends DetectorMonitoring
 			}
 		}
 		getDir().addDirectory(geometry);
+		getDir().addDirectory(calADC);
 	}
 
-	public float uvw_dalitz(int ic, int ip, int il) {
+	public float uvw_dalitz(int ic, int ip, int il)
+	{
 		float uvw=0;
-		switch (ic) {
-		case 0: //PCAL
-			if (il==1&&ip<=52) uvw=(float)ip/84;
-			if (il==1&&ip>52)  uvw=(float)(52+(ip-52)*2)/84;
-			if (il==2&&ip<=15) uvw=(float) 2*ip/77;
-			if (il==2&&ip>15)  uvw=(float)(30+(ip-15))/77;
-			if (il==3&&ip<=15) uvw=(float) 2*ip/77;
-			if (il==3&&ip>15)  uvw=(float)(30+(ip-15))/77;
-			break;
-		case 1: //ECALinner
-			uvw=(float)ip/36;
-			break;
-		case 2: //ECALouter
-			uvw=(float)ip/36;
-			break;
+		switch (ic) 
+		{
+			case 0: //PCAL
+				if (il==1&&ip<=52) uvw=(float)ip/84;
+				if (il==1&&ip>52)  uvw=(float)(52+(ip-52)*2)/84;
+				if (il==2&&ip<=15) uvw=(float) 2*ip/77;
+				if (il==2&&ip>15)  uvw=(float)(30+(ip-15))/77;
+				if (il==3&&ip<=15) uvw=(float) 2*ip/77;
+				if (il==3&&ip>15)  uvw=(float)(30+(ip-15))/77;
+				break;
+			case 1: //ECALinner
+				uvw=(float)ip/36;
+				break;
+			case 2: //ECALouter
+				uvw=(float)ip/36;
+				break;
 		}
-		return uvw;		
+		return uvw;
 	}
 	
 	@Override
@@ -241,10 +303,16 @@ public class FCMon extends DetectorMonitoring
 		int adcutvw[]      = {70,5,5};
 		int adcutwu[]      = {70,5,5};
 
+		//int tid            = 100000;
+		//int cid            = 10000;
 		int thr            = 10; //threshold count
-		int iis            = 2;	//Sector 5 hardwired for now
+		int iis            = 2;	//Sector 2 hardwired for now
+		
+		float uvw=0;
 		
 		H2D histadu[] = new H2D[68];
+		H1D hDalitz, hDalitzMCut;
+		H2D HnumhitsUV, HnumhitsUW, HnumhitsVW;
 		
 		for (int is=0 ; is<6 ; is++) //initialization
 		{
@@ -272,7 +340,7 @@ public class FCMon extends DetectorMonitoring
 		if(event.hasBank("PCAL::dgtz")==true)
 		{
 			int ic=0;	// ic=0,1,2 -> PCAL,ECinner,ECouter
-			float uvw=0;
+			uvw=0;
 			float tdcmax=100000;
             EvioDataBank bank = (EvioDataBank) event.getBank("PCAL::dgtz");
             
@@ -302,8 +370,12 @@ public class FCMon extends DetectorMonitoring
             	     strr[is-1][il-1][inh-1] = ip;
             	     uvw=uvw+uvw_dalitz(ic,ip,il);
             	   }
-               }
+            	   hDalitz = (H1D) getDir().getDirectory("dalitz").getObject("Dalitz Condition");
+                   hDalitz.fill(uvw);
+                }
             }
+            
+
          }
         
         // Logic: Limit multiplicity to 1 hit per view
@@ -336,12 +408,21 @@ public class FCMon extends DetectorMonitoring
         
         String histNameFormat[] = {"histU_%02d", "histV_%02d", "histW_%02d"};
 		String histname;
+		
         for (int ic=0 ; ic<3 ; ic++)//ic = {PCAL, EC inner, EC outer}
         {
         	if (good_uvw[ic])//multiplicity
         	{
         		if(ic == 0)//PCAL
         		{
+        			hDalitzMCut = (H1D) getDir().getDirectory("dalitz").getObject("Dalitz Multiplicity Cut");
+        			hDalitzMCut.fill(uvw);
+        			HnumhitsUV = (H2D) getDir().getDirectory("dalitz").getObject("numHitsUV");
+        			HnumhitsUV.fill(rs[0],rs[1]);
+        			HnumhitsUW = (H2D) getDir().getDirectory("dalitz").getObject("numHitsUW");
+        			HnumhitsUW.fill(rs[0],rs[2]);
+        			HnumhitsVW = (H2D) getDir().getDirectory("dalitz").getObject("numHitsVW");
+        			HnumhitsVW.fill(rs[1],rs[2]);
         			for(int il = 0; il < 3; il++)//three layers il = {u,v,w}
         			{
         				histname = String.format(histNameFormat[il], rs[il]);
@@ -352,6 +433,91 @@ public class FCMon extends DetectorMonitoring
         		}
         	}
         }
+        
+    }
+	
+    static double UattCoeffA[] = new double[68];
+    static double UattCoeffB[] = new double[68];
+    static double UattCoeffC[] = new double[68];
+    static double maxDistU[] = new double[68];
+    static int strU[] = new int[68];
+    
+    static double VattCoeffA[] = new double[62];
+    static double VattCoeffB[] = new double[62];
+    static double VattCoeffC[] = new double[62];
+    static double maxDistV[] = new double[62];
+    static int strV[] = new int[62];
+    
+    static double WattCoeffA[] = new double[62];
+    static double WattCoeffB[] = new double[62];
+    static double WattCoeffC[] = new double[62];
+    static double maxDistW[] = new double[62];
+    static int strW[] = new int[62];
+    
+    public void getAttenuationCoefficients()
+    {
+    	int length = 0;
+        Scanner scanner;
+		try 
+		{
+			scanner = new Scanner(new File("/home/chetry/EC_PCAL/coatjava/clasmon/attCoeff/UattenCoeff.dat"));
+			while(scanner.hasNextInt())
+			{
+				strU[length] = scanner.nextInt();
+				maxDistU[length] = scanner.nextDouble();
+				UattCoeffA[length] = scanner.nextDouble();
+				UattCoeffB[length] = scanner.nextDouble();
+				UattCoeffC[length] = scanner.nextDouble();
+				++length;
+			}
+			scanner.close();
+		}
+		catch (FileNotFoundException e1) 
+		{
+			// TODO Auto-generated catch block
+			e1.printStackTrace();
+		}
+		length = 0;
+		try 
+		{
+			scanner = new Scanner(new File("/home/chetry/EC_PCAL/coatjava/clasmon/attCoeff/VattenCoeff.dat"));
+			while(scanner.hasNextInt())
+			{
+				strV[length] = scanner.nextInt();
+				maxDistV[length] = scanner.nextDouble();
+				VattCoeffA[length] = scanner.nextDouble();
+				VattCoeffB[length] = scanner.nextDouble();
+				VattCoeffC[length] = scanner.nextDouble();
+				++length;
+			}
+			scanner.close();
+		}
+		catch (FileNotFoundException e1) 
+		{
+			// TODO Auto-generated catch block
+			e1.printStackTrace();
+		}
+		length = 0;
+		try 
+		{
+			scanner = new Scanner(new File("/home/chetry/EC_PCAL/coatjava/clasmon/attCoeff/WattenCoeff.dat"));
+			while(scanner.hasNextInt())
+			{
+				strW[length] = scanner.nextInt();
+				maxDistW[length] = scanner.nextDouble();
+				WattCoeffA[length] = scanner.nextDouble();
+				WattCoeffB[length] = scanner.nextDouble();
+				WattCoeffC[length] = scanner.nextDouble();
+				++length;
+			}
+			scanner.close();
+		}
+		catch (FileNotFoundException e1) 
+		{
+			// TODO Auto-generated catch block
+			e1.printStackTrace();
+		}
+		
     }
 	
 	//graphErrors constructor
@@ -419,7 +585,6 @@ public class FCMon extends DetectorMonitoring
     //xdistance needs to be 1-62 or 1-68 not 0
     public double[] CalcDistance(char stripletter, double xdistance, double xdistanceE)
     {
-        int i;
         double distperstrip = 5.055;
         
         if(stripletter == 'u' || stripletter == 'U')
@@ -440,14 +605,15 @@ public class FCMon extends DetectorMonitoring
 	public static void main(String[] args)
 	{
 	   FCMon calib = new FCMon(); //declare class of FCMon
-	   calib.init(); //access init function sets up histograms A
+	   calib.init(); //access init function sets up histograms
+	   calib.getAttenuationCoefficients();
 	   
 	   //CLASMonitoring monitor = new CLASMonitoring("/home/chetry/EC_PCAL/coatjava/clasmon/src/org/jlab/mon/fc-muon-100k.evio", calib);
-	   //CLASMonitoring monitor = new CLASMonitoring("/home/chetry/EC_PCAL/coatjava/clasmon/src/org/jlab/mon/fc-muon-500k-s2.evio", calib);
-	   CLASMonitoring monitor = new CLASMonitoring("/home/chetry/EC_PCAL/coatjava/clasmon/src/org/jlab/mon/fc-muon-3M-s2.evio", calib);
+	   CLASMonitoring monitor = new CLASMonitoring("/home/chetry/EC_PCAL/coatjava/clasmon/src/org/jlab/mon/fc-muon-500k-s2.evio", calib);
+	   //CLASMonitoring monitor = new CLASMonitoring("/home/chetry/EC_PCAL/coatjava/clasmon/src/org/jlab/mon/fc-muon-3M-s2.evio", calib);
 	   
-	   monitor.process();//fills histograms	   
-	   calib.analyze();//works on created histograms: slices, fits, attenuation	   
+	   monitor.process();//fills histograms	   //monitor has the analyze in it
+	   //calib.analyze();//works on created histograms: slices, fits, attenuation	   
 	   TBrowser browser = new TBrowser(calib.getDir()); //shows histograms
 	}
 }
