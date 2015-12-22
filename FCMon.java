@@ -33,10 +33,12 @@ public class FCMon extends DetectorMonitoring
 	{
 		//create directories
 		TDirectory projection = new TDirectory("Projection");
+		TDirectory gausFitDir = new TDirectory("GaussFit");
 		TDirectory expofit = new TDirectory("ExpoFit");
 		TDirectory graph = new TDirectory("GraphE");
 		
 		double centroids[] = new double[500];
+		double centroidsErr[] = new double[500];
 		
 		double x[] = new double[500];
 		double ex[] = new double[500];
@@ -49,8 +51,6 @@ public class FCMon extends DetectorMonitoring
 		
 		//histograms
 		H2D Hadc[] = new H2D[100];
-
-		
 		//projections
 		H1D ProjHadc[] = new H1D[100];
 		
@@ -83,13 +83,7 @@ public class FCMon extends DetectorMonitoring
 		int crossStripMax[] = {62, 68, 68};//w, u, u
 		
 		//create gaussian function and fit
-		//gaussFuncName = String.format(gaussfuncNameFormat[il], strip + 1);
-		gausFit = new F1D("gaus",0.0,150.0);
-		//gausFit.setName(gaussFuncName);
-		//gausFit.parameter(0).setValue(15.0);
-		//gausFit.setParLimits(0, -1000.0, 1000.0);
-		//gausFit.parameter(1).setValue(100.0);
-		//gausFit.parameter(2).setValue(50.0);
+		
 		for(int il = 0; il < 3; ++il)
 		{
 			try 
@@ -112,31 +106,36 @@ public class FCMon extends DetectorMonitoring
 					projName = String.format(projNameFormat[il], strip+1, crossStrip + 1);
 					ProjHadc[crossStrip] = Hadc[strip].sliceX(crossStrip);
 					ProjHadc[crossStrip].setName(projName);
-					
-					
-					
+								
 					//create gaussian function and fit
+					gausFit = new F1D("gaus",0.0,150.0);
 					gaussFuncName = String.format(gaussfuncNameFormat[il], strip+1, crossStrip + 1);
-					//gausFit[strip+crossStrip*] = new F1D("gaus",0.0,150.0);
 					gausFit.setName(gaussFuncName);
-					gausFit.setParameter(0, 15.0);
+					gausFit.setParameter(0, ProjHadc[crossStrip].getBinContent(ProjHadc[crossStrip].getMaximumBin()));
 					gausFit.setParLimits(0, 0.0, 500.0);
-					gausFit.setParameter(1, 100.0);
+					gausFit.setParameter(1, ProjHadc[crossStrip].getMean());
 					gausFit.setParLimits(1, 0.0, 150.0);
-					gausFit.setParameter(2, 10.0);
-					gausFit.setParLimits(2, 0.0, 1000.0);
+					gausFit.setParameter(2, ProjHadc[crossStrip].getRMS());
+					gausFit.setParLimits(2, 0.0, 200.0);
 					
 					
 					if(ProjHadc[crossStrip].getEntries() >= 20)
 					{
 						projection.add(ProjHadc[crossStrip]);
-						System.out.println(il + "    " + strip + "    " + crossStrip);
+						//System.out.println(il + "    " + strip + "    " + crossStrip);
 						ProjHadc[crossStrip].fit(gausFit);
+						gausFitDir.add(gausFit);
+						
 						centroids[counter] = gausFit.getParameter(1);
+						centroidsErr[counter] = (float)gausFit.getParameter(2)/Math.sqrt(ProjHadc[crossStrip].getEntries());
 					}
 					else
-					centroids[counter] = ProjHadc[crossStrip].getMean();
-					
+					{
+						centroids[counter] = ProjHadc[crossStrip].getMean();
+						centroidsErr[counter] = (float)ProjHadc[crossStrip].getRMS()/Math.sqrt(ProjHadc[crossStrip].getEntries());
+						
+					}
+					gausFit = null;
 					if(centroids[counter] >= 1.0)
 					{
 						xTemp[counter] = CalcDistinStrips(stripLetter[il], crossStrip+1)[0];//calcDistinStrips
@@ -151,7 +150,7 @@ public class FCMon extends DetectorMonitoring
 					}
 				}
 				graphName = String.format(graphNameFormat[il], strip + 1);
-				GraphErrors attengraph = graphn(graphName,counter,x,centroids,ex,ey);
+				GraphErrors attengraph = graphn(graphName,counter,x,centroids,ex,centroidsErr);
 				if(counter < 5)
 				{
 					minx = 500.0;
@@ -195,23 +194,10 @@ public class FCMon extends DetectorMonitoring
 			writer.close();
 		}
 		getDir().addDirectory(projection);
+		getDir().addDirectory(gausFitDir);
 		getDir().addDirectory(expofit);
 		getDir().addDirectory(graph);
 		
-		/*TCanvas Ucan = new TCanvas("Ucan", "Ucan", 800, 600, 1, 1);
-		gausFit = new F1D("gaus",0.0,150.0);
-		gausFit.setName("trial gauss");
-		gausFit.setParameter(0, 15.0);
-		gausFit.setParameter(1, 50.0);
-		gausFit.setParameter(2, 10.0);
-		
-		H2D trial = (H2D)getDir().getDirectory("crossStripHisto").getObject("histU_68");
-		H1D Projtrial = trial.sliceX(10);
-		//Ucan.cd(1);
-		Ucan.draw(Projtrial);
-		//Ucan.cd(2);
-		Projtrial.fit(gausFit);
-		Ucan.draw(gausFit, "same");*/
 	}
 
 	@Override
@@ -609,8 +595,8 @@ public class FCMon extends DetectorMonitoring
 	   calib.getAttenuationCoefficients();
 	   
 	   //CLASMonitoring monitor = new CLASMonitoring("/home/chetry/EC_PCAL/coatjava/clasmon/src/org/jlab/mon/fc-muon-100k.evio", calib);
-	   CLASMonitoring monitor = new CLASMonitoring("/home/chetry/EC_PCAL/coatjava/clasmon/src/org/jlab/mon/fc-muon-500k-s2.evio", calib);
-	   //CLASMonitoring monitor = new CLASMonitoring("/home/chetry/EC_PCAL/coatjava/clasmon/src/org/jlab/mon/fc-muon-3M-s2.evio", calib);
+	   //CLASMonitoring monitor = new CLASMonitoring("/home/chetry/EC_PCAL/coatjava/clasmon/src/org/jlab/mon/fc-muon-500k-s2.evio", calib);
+	   CLASMonitoring monitor = new CLASMonitoring("/home/chetry/EC_PCAL/coatjava/clasmon/src/org/jlab/mon/fc-muon-3M-s2.evio", calib);
 	   
 	   monitor.process();//fills histograms	   //monitor has the analyze in it
 	   //calib.analyze();//works on created histograms: slices, fits, attenuation	   
